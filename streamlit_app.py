@@ -97,33 +97,46 @@ if page == "Overview":
 elif page == "Tool 1: Predicao":
     st.title("Tool 1: Predicao para Dados em Tabela")
     
-    tab1, tab2 = st.tabs(["Upload CSV", "Entrada Manual"])
+    st.subheader("Dataset California Housing (Carregado Automaticamente)")
     
-    with tab1:
-        file = st.file_uploader("Upload CSV", type=['csv'])
-        if file:
-            input_df = pd.read_csv(file)
-            st.write("Dados:", input_df.head())
-            if st.button("Prever", key="csv"):
-                X, _, _ = prepare_data(input_df, is_training=False)
-                preds = make_predictions(model['pipeline'], X)
-                input_df['Valor_Predito'] = preds
-                input_df['Preco_USD'] = preds * 100000
-                st.dataframe(input_df, use_container_width=True)
-                st.download_button("Download", input_df.to_csv(index=False), "predicoes.csv")
+    # Slider para selecionar quantas amostras usar
+    n_samples = st.slider("Numero de amostras para predicao:", min_value=10, max_value=len(df), value=100, step=10)
     
-    with tab2:
-        defaults = {'MedInc': 3.87, 'HouseAge': 29.0, 'AveRooms': 5.43, 'AveBedrms': 1.10,
-                   'Population': 1425.0, 'AveOccup': 3.07, 'Latitude': 35.63, 'Longitude': -119.57}
-        vals = {}
-        cols = st.columns(4)
-        for i, f in enumerate(model['features']):
-            with cols[i % 4]:
-                vals[f] = st.number_input(f, value=defaults.get(f, 0.0), format="%.2f")
+    # Seleciona amostras aleatorias do dataset
+    sample_df = df.sample(n=n_samples, random_state=42).reset_index(drop=True)
+    
+    st.write(f"Amostra de {n_samples} registros:")
+    st.dataframe(sample_df.head(20), use_container_width=True)
+    
+    if st.button("Prever Valores", key="auto"):
+        X, _, _ = prepare_data(sample_df.drop(columns=['target']), is_training=False)
+        preds = make_predictions(model['pipeline'], X)
         
-        if st.button("Prever Valor", key="manual"):
-            pred = make_predictions(model['pipeline'], pd.DataFrame([vals]))[0]
-            st.success(f"Valor Predito: **${pred * 100000:,.2f}**")
+        result_df = sample_df.copy()
+        result_df['Valor_Predito'] = preds
+        result_df['Preco_Predito_USD'] = preds * 100000
+        result_df['Preco_Real_USD'] = result_df['target'] * 100000
+        result_df['Erro_USD'] = abs(result_df['Preco_Predito_USD'] - result_df['Preco_Real_USD'])
+        
+        st.subheader("Resultados das Predicoes")
+        st.dataframe(result_df, use_container_width=True)
+        
+        # Metricas resumidas
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Erro Medio", f"${result_df['Erro_USD'].mean():,.2f}")
+        c2.metric("Erro Mediano", f"${result_df['Erro_USD'].median():,.2f}")
+        c3.metric("Erro Maximo", f"${result_df['Erro_USD'].max():,.2f}")
+        
+        # Grafico comparativo
+        fig = px.scatter(result_df, x='Preco_Real_USD', y='Preco_Predito_USD', 
+                        opacity=0.6, title='Preco Real vs Predito')
+        fig.add_scatter(x=[0, result_df['Preco_Real_USD'].max()], 
+                       y=[0, result_df['Preco_Real_USD'].max()], 
+                       mode='lines', name='Ideal', line=dict(dash='dash', color='red'))
+        fig.update_layout(template='plotly_dark')
+        st.plotly_chart(fig, use_container_width=True)
+        
+        st.download_button("Download CSV", result_df.to_csv(index=False), "predicoes.csv")
 
 
 # Tool 2: Confidence
